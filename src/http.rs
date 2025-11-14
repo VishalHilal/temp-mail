@@ -1,207 +1,209 @@
-use crate::db::Db;
-use anyhow::Result;
-use askama::Template;
 use axum::{
-    extract::{Path, State},
+    extract::{Form, Path, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect},
     routing::{get, post},
-    Form, Router,
+    // Note: axum::Server is removed, we'll use axum::serve
+    serve, // <-- New import
+    Router,
 };
-use rand::Rng;
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::Deserialize;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
+use tera::{Context, Tera};
+use tokio::net::TcpListener; // <-- New import for server binding
 use tower_http::services::ServeDir;
+use tracing::error;
+use uuid::Uuid; // <-- Added Uuid import for view_message Path
+
+use crate::db::{Db, Message};
 
 #[derive(Clone)]
 pub struct AppState {
-    db: Db,
-    domain: String,
+    pub db: Db,
+    pub domain: String,
+    pub templates: Arc<Tera>,
 }
 
-pub async fn start_server(addr: SocketAddr, domain: String, db: Db) -> Result<()> {
-    let state = AppState { db, domain };
+/// Start the HTTP server (called from main.rs)
+pub async fn start_server(listen: SocketAddr, domain: String, db: Db) -> anyhow::Result<()> {
+    // initialize tera: templates directory (templates/*)
+    let mut tera = Tera::new("templates/**/*")?;
+    // disable autoescape for now (we render raw text inside <pre>)
+    tera.autoescape_on(vec![]);
+
+    let state = AppState {
+        db,
+        domain,
+        templates: Arc::new(tera),
+    };
 
     let app = Router::new()
         .route("/", get(index))
         .route("/create", post(create_mailbox))
         .route("/inbox/:local", get(view_inbox))
         .route("/inbox/:local/:id", get(view_message))
-        .route("/api/check/:local", get(check_inbox))
+        // serve static files from ./static on /static/*
         .nest_service("/static", ServeDir::new("static"))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("HTTP server listening on {}", addr);
-    
-    axum::serve(listener, app).await?;
+    tracing::info!("HTTP server listening on http://{}", listen);
+
+    // FIX E0433: Use tokio::net::TcpListener and axum::serve
+    let listener = TcpListener::bind(listen).await?;
+    serve(listener, app.into_make_service()).await?;
+
     Ok(())
 }
 
-#[derive(Template)]
-#[template(path = "index.html")]
-struct IndexTemplate {
-    domain: String,
-}
+/* ---------- Handlers ---------- */
 
 async fn index(State(state): State<AppState>) -> impl IntoResponse {
-    IndexTemplate {
-        domain: state.domain,
-    }
+    let mut ctx = Context::new();
+    ctx.insert("domain", &state.domain);
+    let rendered = state
+        .templates
+        .render("index.html", &ctx)
+        .unwrap_or_else(|e| {
+            error!("template render error: {}", e);
+            "<h1>Template render error</h1>".to_string()
+        });
+    Html(rendered)
 }
 
 #[derive(Deserialize)]
-struct CreateForm {
-    custom: Option<String>,
+pub struct CreateForm {
+    pub ttl_hours: Option<i64>,
 }
 
 async fn create_mailbox(
     State(state): State<AppState>,
     Form(form): Form<CreateForm>,
-) -> Result<Redirect, Response> {
-    let local = if let Some(custom) = form.custom {
-        let custom = custom.trim().to_lowercase();
-        if custom.is_empty() || !is_valid_local(&custom) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "Invalid email address. Use only letters, numbers, dots, and hyphens.",
-            )
-                .into_response());
-        }
-        custom
-    } else {
-        generate_random_local()
-    };
-
-    match state.db.create_mailbox(&local).await {
-        Ok(_) => Ok(Redirect::to(&format!("/inbox/{}", local))),
-        Err(_) => Err((
-            StatusCode::CONFLICT,
-            "Email address already exists. Try another one.",
-        )
-            .into_response()),
-    }
-}
-
-fn generate_random_local() -> String {
-    rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(12)
+) -> impl IntoResponse {
+    // generate a 10-char local part
+    let local: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(10)
         .map(char::from)
-        .collect::<String>()
-        .to_lowercase()
-}
+        .collect();
 
-fn is_valid_local(local: &str) -> bool {
-    !local.is_empty()
-        && local.len() <= 64
-        && local
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
-        && !local.starts_with('.')
-        && !local.ends_with('.')
-}
+    let ttl_seconds = form.ttl_hours.map(|h| h * 3600);
 
-#[derive(Template)]
-#[template(path = "inbox.html")]
-struct InboxTemplate {
-    domain: String,
-    local: String,
-    email: String,
-    messages: Vec<crate::db::Message>,
+    // FIX E0061: create_mailbox now accepts ttl_seconds
+    if let Err(e) = state.db.create_mailbox(&local, ttl_seconds).await {
+        error!("create_mailbox db error: {:?}", e);
+        // redirect to home on error
+        return (StatusCode::SEE_OTHER, Redirect::to("/")).into_response();
+    }
+
+    // FIX E0308: Must call .into_response() on the bare Redirect to match return type
+    Redirect::to(&format!("/inbox/{}", local)).into_response()
 }
 
 async fn view_inbox(
     Path(local): Path<String>,
     State(state): State<AppState>,
-) -> Result<impl IntoResponse, Redirect> {
-    let mailbox = match state.db.get_mailbox_by_local(&local).await {
-        Ok(Some(mb)) => mb,
+) -> Result<Html<String>, Redirect> {
+    // check mailbox exists (uses Db::mailbox_exists)
+    match state.db.mailbox_exists(&local).await {
+        Ok(true) => {}
         _ => return Err(Redirect::to("/")),
+    }
+
+    // List messages (uses Db::list_messages)
+    let messages = match state.db.list_messages(&local).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("db list_messages error: {:?}", e);
+            vec![]
+        }
     };
 
-    let messages = state
-        .db
-        .get_messages_by_mailbox(mailbox.id)
-        .await
-        .unwrap_or_default();
+    // prepare context
+    let mut ctx = Context::new();
+    ctx.insert("domain", &state.domain);
+    ctx.insert("local", &local);
 
-    Ok(InboxTemplate {
-        domain: state.domain.clone(),
-        local: local.clone(),
-        email: format!("{}@{}", local, state.domain),
-        messages,
-    })
-}
+    // convert messages into simple serializable objects for Tera
+    let msgs_for_template: Vec<_> = messages
+        .into_iter()
+        .map(|m: Message| {
+            let id = m.id.to_string();
 
-#[derive(Template)]
-#[template(path = "message.html")]
-struct MessageTemplate {
-    domain: String,
-    local: String,
-    message: crate::db::Message,
+            // FIX E0599 (unwrap_or_else for String) - Message::from_addr must be Option<String> in db.rs
+            let from = m.from_addr.unwrap_or_else(|| "<unknown>".into());
+
+            let received = {
+                // FIX: Use .timestamp() which returns i64, not .timestamp_opt() which is not a method on DateTime<Utc>
+                let ts = m.received_at.timestamp();
+                chrono::NaiveDateTime::from_timestamp_opt(ts, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "unknown".into())
+            };
+
+            serde_json::json!({
+                "id": id,
+                "from": from,
+                "received": received
+            })
+        })
+        .collect();
+
+    ctx.insert("messages", &msgs_for_template);
+
+    let rendered = state.templates.render("inbox.html", &ctx).map_err(|e| {
+        error!("render inbox template: {:?}", e);
+        Redirect::to("/")
+    })?;
+
+    Ok(Html(rendered))
 }
 
 async fn view_message(
     Path((local, id)): Path<(String, String)>,
     State(state): State<AppState>,
-) -> Result<impl IntoResponse, Redirect> {
-    let message_id = uuid::Uuid::parse_str(&id)
-        .map_err(|_| Redirect::to(&format!("/inbox/{}", local)))?;
-
-    let message = match state.db.get_message_by_id(message_id).await {
-        Ok(Some(msg)) => msg,
-        _ => return Err(Redirect::to(&format!("/inbox/{}", local))),
+) -> Result<Html<String>, Redirect> {
+    // parse uuid
+    let uuid = match Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return Err(Redirect::to(&format!("/inbox/{}", local))),
     };
 
-    Ok(MessageTemplate {
-        domain: state.domain,
-        local,
-        message,
-    })
-}
-
-#[derive(serde::Serialize)]
-struct CheckResponse {
-    count: usize,
-    messages: Vec<MessageSummary>,
-}
-
-#[derive(serde::Serialize)]
-struct MessageSummary {
-    id: String,
-    from: String,
-    subject: String,
-    received_at: String,
-}
-
-async fn check_inbox(
-    Path(local): Path<String>,
-    State(state): State<AppState>,
-) -> Result<axum::Json<CheckResponse>, StatusCode> {
-    let mailbox = match state.db.get_mailbox_by_local(&local).await {
-        Ok(Some(mb)) => mb,
-        _ => return Err(StatusCode::NOT_FOUND),
+    // Get message (uses Db::get_message)
+    let opt = match state.db.get_message(&local, uuid).await {
+        Ok(o) => o,
+        Err(e) => {
+            error!("db get_message error: {:?}", e);
+            return Err(Redirect::to(&format!("/inbox/{}", local)));
+        }
     };
 
-    let messages = state
-        .db
-        .get_messages_by_mailbox(mailbox.id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let message = match opt {
+        Some(m) => m,
+        None => return Err(Redirect::to(&format!("/inbox/{}", local))),
+    };
 
-    let summaries: Vec<MessageSummary> = messages
-        .iter()
-        .map(|m| MessageSummary {
-            id: m.id.to_string(),
-            from: m.from_addr.clone(),
-            subject: m.subject.clone(),
-            received_at: m.received_at.to_rfc3339(),
-        })
-        .collect();
+    let mut ctx = Context::new();
+    ctx.insert("domain", &state.domain);
+    ctx.insert("local", &local);
+    ctx.insert(
+        "from",
+        &message.from_addr.unwrap_or_else(|| "<unknown>".into()),
+    );
+    ctx.insert("raw", &message.raw);
 
-    Ok(axum::Json(CheckResponse {
-        count: summaries.len(),
-        messages: summaries,
-    }))
+    // FIX: Use .timestamp() which returns i64, not .timestamp_opt() which is not a method on DateTime<Utc>
+    let ts = message.received_at.timestamp();
+    let received = chrono::NaiveDateTime::from_timestamp_opt(ts, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "unknown".into());
+
+    ctx.insert("received", &received);
+
+    let rendered = state.templates.render("message.html", &ctx).map_err(|e| {
+        error!("render message template: {:?}", e);
+        Redirect::to(&format!("/inbox/{}", local))
+    })?;
+
+    Ok(Html(rendered))
 }

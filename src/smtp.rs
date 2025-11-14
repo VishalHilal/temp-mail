@@ -202,14 +202,14 @@ async fn process_email(
         let mailbox = match db.get_mailbox_by_local(local).await? {
             Some(mb) => mb,
             None => {
-                db.create_mailbox(local).await?
+                db.create_mailbox(local,None).await?
             }
         };
 
         // Store message
         db.create_message(
             mailbox.id,
-            from,
+            Some(from),
             recipient,
             &subject,
             &body_text,
