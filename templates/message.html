@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ message.subject }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .back-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.3s;
+            text-decoration: none;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .logo {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .message-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+        }
+
+        .message-header {
+            padding: 30px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .subject {
+            font-size: 1.8em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .meta-info {
+            display: grid;
+            gap: 12px;
+        }
+
+        .meta-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .meta-label {
+            color: #999;
+            font-weight: 600;
+            min-width: 80px;
+        }
+
+        .meta-value {
+            color: #333;
+            word-break: break-all;
+        }
+
+        .from-address {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .message-body {
+            padding: 30px;
+        }
+
+        .body-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-btn:hover {
+            color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .text-content {
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .html-content {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+        }
+
+        .html-content iframe {
+            width: 100%;
+            min-height: 400px;
+            border: none;
+            border-radius: 4px;
+            background: white;
+        }
+
+        .raw-content {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        .actions {
+            padding: 20px 30px;
+            background: #f9f9f9;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .action-btn:hover {
+            background: #5568d3;
+        }
+
+        .action-btn.secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .action-btn.secondary:hover {
+            background: #d0d0d0;
+        }
+
+        @media (max-width: 768px) {
+            .message-header {
+                padding: 20px;
+            }
+
+            .message-body {
+                padding: 20px;
+            }
+
+            .subject {
+                font-size: 1.4em;
+            }
+
+            .meta-row {
+                flex-direction: column;
+                gap: 5px;
+            }
+
+            .meta-label {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">📧 TempMail</div>
+            <a href="/inbox/{{ local }}" class="back-btn">← Back to Inbox</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="message-card">
+            <div class="message-header">
+                <h1 class="subject">{{ message.subject }}</h1>
+                <div class="meta-info">
+                    <div class="meta-row">
+                        <span class="meta-label">From:</span>
+                        <span class="meta-value from-address">{{ message.from_addr }}</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-label">To:</span>
+                        <span class="meta-value">{{ message.to_addr }}</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-label">Date:</span>
+                        <span class="meta-value">{{ message.received_at.format("%B %d, %Y at %H:%M:%S") }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="message-body">
+                <div class="body-tabs">
+                    <button class="tab-btn active" onclick="showTab('text')">Text</button>
+                    {% if message.body_html.is_some() %}
+                    <button class="tab-btn" onclick="showTab('html')">HTML</button>
+                    {% endif %}
+                    <button class="tab-btn" onclick="showTab('raw')">Raw</button>
+                </div>
+
+                <div id="text-tab" class="tab-content active">
+                    <div class="text-content">{{ message.body_text }}</div>
+                </div>
+
+                {% if message.body_html.is_some() %}
+                <div id="html-tab" class="tab-content">
+                    <div class="html-content">
+                        <iframe id="html-frame" sandbox="allow-same-origin"></iframe>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div id="raw-tab" class="tab-content">
+                    <pre class="raw-content">{{ message.raw_email }}</pre>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="action-btn" onclick="window.print()">🖨️ Print</button>
+                <button class="action-btn secondary" onclick="downloadRaw()">⬇️ Download Raw</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+
+            // Load HTML iframe if needed
+            if (tabName === 'html') {
+                const iframe = document.getElementById('html-frame');
+                if (!iframe.srcdoc) {
+                    iframe.srcdoc = {{ message.body_html.as_ref().map(|h| format!("\"{}\"", h.replace("\"", "\\\""))).unwrap_or("\"\"".to_string())|safe }};
+                }
+            }
+        }
+
+        function downloadRaw() {
+            const raw = {{ format!("\"{}\"", message.raw_email.replace("\"", "\\\"").replace("\n", "\\n"))|safe }};
+            const blob = new Blob([raw], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'email-{{ message.id }}.eml';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+    </script>
+</body>
+</html>
