@@ -1,17 +1,12 @@
 use axum::{
-    extract::{Form, Path, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Redirect},
-    routing::{get, post},
-    // Note: axum::Server is removed, we'll use axum::serve
-    serve, // <-- New import
-    Router,
+    Router, extract::{Form, Path, State}, http::{HeaderValue, StatusCode}, response::{Html, IntoResponse, Redirect}, routing::{get, post}, serve
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tera::{Context, Tera};
 use tokio::net::TcpListener; // <-- New import for server binding
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::error;
 use uuid::Uuid; // <-- Added Uuid import for view_message Path
@@ -38,13 +33,29 @@ pub async fn start_server(listen: SocketAddr, domain: String, db: Db) -> anyhow:
         templates: Arc::new(tera),
     };
 
+    let cors = CorsLayer::new()
+        .allow_origin(
+            HeaderValue::from_static("http://localhost:5173"), // allow your Vite frontend
+        )
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    fn api_routes() -> Router<AppState> {
+        Router::new()
+            .route("/api/mailbox", post(create_mailbox)) // example API route
+            .route("/api/:local/messages", get(view_inbox))
+            .route("/api/:local/messages/:id", get(view_message))
+    }
+
     let app = Router::new()
+        .merge(api_routes())
+        .layer(cors)
         .route("/", get(index))
         .route("/create", post(create_mailbox))
         .route("/inbox/:local", get(view_inbox))
         .route("/inbox/:local/:id", get(view_message))
         // serve static files from ./static on /static/*
-        .nest_service("/static", ServeDir::new("static"))
+        .nest_service("/templates", ServeDir::new("static"))
         .with_state(state);
 
     tracing::info!("HTTP server listening on http://{}", listen);
@@ -65,8 +76,8 @@ async fn index(State(state): State<AppState>) -> impl IntoResponse {
         .templates
         .render("index.html", &ctx)
         .unwrap_or_else(|e| {
-            error!("template render error: {}", e);
-            "<h1>Template render error</h1>".to_string()
+            error!("this is rust backend error {}", e);
+            "<h1>this is error from rust backend check fn index</h1>".to_string()
         });
     Html(rendered)
 }
