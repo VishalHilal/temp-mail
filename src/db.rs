@@ -22,7 +22,7 @@ pub struct Message {
     pub id: Uuid,
     pub mailbox_id: Uuid,
     // FIX E0599 (unwrap_or_else): from_addr must be Option<String> for unwrap_or_else to work
-    pub from_addr: Option<String>, 
+    pub from_addr: Option<String>,
     pub to_addr: String,
     pub subject: String,
     pub body_text: String,
@@ -38,33 +38,58 @@ impl Db {
     }
 
     pub async fn run_migrations(&self) -> Result<()> {
+        // Enable extension pgcrypto
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"")
+            .execute(&self.pool)
+            .await?;
+
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS mailboxes (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                local VARCHAR(255) NOT NULL UNIQUE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                expires_at TIMESTAMPTZ -- Added column
-            );
+        CREATE TABLE IF NOT EXISTS mailboxes (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            local VARCHAR(255) NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMPTZ
+        )
+        "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
-            CREATE INDEX IF NOT EXISTS idx_mailboxes_local ON mailboxes(local);
-            CREATE INDEX IF NOT EXISTS idx_mailboxes_expires_at ON mailboxes(expires_at); -- Added index
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_mailboxes_local ON mailboxes(local);")
+            .execute(&self.pool)
+            .await?;
 
-            CREATE TABLE IF NOT EXISTS messages (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                mailbox_id UUID NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
-                from_addr TEXT, -- Changed to allow NULL to match Option<String>
-                to_addr TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                body_text TEXT NOT NULL,
-                body_html TEXT,
-                raw TEXT NOT NULL, -- Renamed raw_email to raw
-                received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_mailboxes_expires_at ON mailboxes(expires_at);",
+        )
+        .execute(&self.pool)
+        .await?;
 
-            CREATE INDEX IF NOT EXISTS idx_messages_mailbox_id ON messages(mailbox_id);
-            CREATE INDEX IF NOT EXISTS idx_messages_received_at ON messages(received_at DESC);
-            "#,
+        sqlx::query(
+            r#"
+        CREATE TABLE IF NOT EXISTS messages (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            mailbox_id UUID NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+            from_addr TEXT,
+            to_addr TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            body_text TEXT NOT NULL,
+            body_html TEXT,
+            raw TEXT NOT NULL,
+            received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_messages_mailbox_id ON messages(mailbox_id);")
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messages_received_at ON messages(received_at DESC);",
         )
         .execute(&self.pool)
         .await?;
@@ -97,13 +122,14 @@ impl Db {
             expires_at: row.get("expires_at"),
         })
     }
-    
+
     // Helper to get Mailbox ID
     pub async fn get_mailbox_by_local(&self, local: &str) -> Result<Option<Mailbox>> {
-        let row = sqlx::query("SELECT id, local, created_at, expires_at FROM mailboxes WHERE local = $1")
-            .bind(local)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row =
+            sqlx::query("SELECT id, local, created_at, expires_at FROM mailboxes WHERE local = $1")
+                .bind(local)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(row.map(|r| Mailbox {
             id: r.get("id"),
@@ -186,7 +212,7 @@ impl Db {
             received_at: r.get("received_at"),
         }))
     }
-    
+
     // ... (other functions from db.rs, like create_message, delete_old_messages, etc.)
     // Note: I've updated create_message to use raw instead of raw_email and from_addr as Option<String>
 
@@ -229,26 +255,24 @@ impl Db {
             received_at: row.get("received_at"),
         })
     }
-    
+
     // ... (rest of the Db impl unchanged)
     pub async fn delete_old_messages(&self, days: i64) -> Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM messages WHERE received_at < NOW() - INTERVAL '1 day' * $1"
-        )
-        .bind(days)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM messages WHERE received_at < NOW() - INTERVAL '1 day' * $1")
+                .bind(days)
+                .execute(&self.pool)
+                .await?;
 
         Ok(result.rows_affected())
     }
 
     pub async fn delete_old_mailboxes(&self, days: i64) -> Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM mailboxes WHERE created_at < NOW() - INTERVAL '1 day' * $1"
-        )
-        .bind(days)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM mailboxes WHERE created_at < NOW() - INTERVAL '1 day' * $1")
+                .bind(days)
+                .execute(&self.pool)
+                .await?;
 
         Ok(result.rows_affected())
     }
