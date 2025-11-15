@@ -1,23 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inbox - {{ local }}@{{ domain }}</title>
+
     <style>
-        body { font-family: Arial, sans-serif; background: #f5f5f5; margin:0; padding:0; }
-        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
-        .container { max-width: 800px; margin: 20px auto; background: white; border-radius: 8px; padding: 20px; }
-        .message { border-bottom: 1px solid #ddd; padding: 10px; cursor: pointer; }
-        .message:hover { background: #f0f0f0; }
-        .message:last-child { border-bottom: none; }
-        .empty { text-align: center; padding: 50px; color: #999; }
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --bg: #eef1f8;
+            --text: #111827;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            font-family: "Inter", Arial, sans-serif;
+            min-height: 100vh;
+            animation: fadeIn 0.8s ease;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 35px 20px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+            animation: slideDown 0.7s ease;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        /* Container */
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            background: var(--card-bg);
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.07);
+            animation: fadeUp 0.8s ease;
+        }
+
+        /* Message Item */
+        .message {
+            padding: 18px 15px;
+            border-bottom: 1px solid #e5e7eb;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: 0.25s ease;
+            background: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .message:hover {
+            background: #f9fafb;
+            transform: translateX(4px);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.05);
+        }
+
+        .message strong {
+            color: var(--primary-dark);
+        }
+
+        .message small {
+            color: #6b7280;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #9ca3af;
+            font-size: 1.1rem;
+            animation: fadeIn 1s ease;
+        }
+
+        /* Animations */
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(25px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Mobile */
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 1.6rem;
+            }
+
+            .container {
+                margin: 20px 12px;
+                border-radius: 14px;
+            }
+
+            .message {
+                padding: 14px 12px;
+            }
+        }
     </style>
+
 </head>
+
 <body>
+
     <div class="header">
-        <h1>📧 Inbox: {{ local }}@{{ domain }}</h1>
+        <h1>📥 Inbox: {{ local }}@{{ domain }}</h1>
     </div>
+
     <div class="container">
         {% if messages | length == 0 %}
             <div class="empty">
@@ -26,11 +133,14 @@
         {% else %}
             {% for message in messages %}
                 <div class="message" onclick="window.location.href='/inbox/{{ local }}/{{ message.id }}'">
-                    <strong>From:</strong> {{ message.from }} <br>
-                    <strong>Received:</strong> {{ message.received }}
+                    <div><strong>From:</strong> {{ message.from }}</div>
+                    <small>Received: {{ message.received }}</small>
                 </div>
             {% endfor %}
         {% endif %}
     </div>
+
 </body>
+
 </html>
+
